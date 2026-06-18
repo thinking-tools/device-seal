@@ -1,0 +1,35 @@
+name: SonarCloud analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  pull-requests: read
+
+jobs:
+  sonarqube:
+    name: SonarQube
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: https://data.forgejo.org/actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for better analysis
+
+      - name: Analyze with SonarCloud
+        uses: https://github.com/SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7 pin
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=thinking-tools-at-codeberg_device-seal-ts
+            -Dsonar.organization=thinking-tools-at-codeberg
+            -Dsonar.scm.provider=git
+            -Dsonar.sources=typescript/src
+            -Dsonar.coverage.exclusions="**/*"
+          projectBaseDir: .
