@@ -1,4 +1,4 @@
-name: SonarCloud analysis
+name: Format, test & SonarCloud
 
 on:
   push:
@@ -12,24 +12,43 @@ permissions:
   pull-requests: read
 
 jobs:
-  sonarqube:
-    name: SonarQube
-    runs-on: ubuntu-latest
+  ci:
+    name: Format, test & analyze
+    runs-on: ubuntu-latest # must match a label your Codeberg/Forgejo runner advertises (else the job is never picked up)
     steps:
       - name: Checkout code
         uses: https://data.forgejo.org/actions/checkout@v4
         with:
-          fetch-depth: 0 # full history for better analysis
+          fetch-depth: 0 # full history for SonarCloud new-code detection & SCM blame
+
+      - name: Set up Node.js
+        uses: https://data.forgejo.org/actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: typescript
+        run: npm ci
+
+      - name: Check formatting
+        working-directory: typescript
+        run: npm run format:check
+
+      - name: Run tests with coverage
+        working-directory: typescript
+        run: npm test # vitest run --coverage: writes coverage/lcov.info and enforces the coverage thresholds
 
       - name: Analyze with SonarCloud
-        uses: https://github.com/SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7 pin
+        uses: https://github.com/SonarSource/sonarqube-scan-action@a31c9398be7ace6bbfaf30c0bd5d415f843d45e9 # v7.0.0 pin
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
+          # Base the analysis at the package dir so the lcov's relative paths (SF:src/...) resolve to the
+          # indexed sources; with projectBaseDir at the repo root they would not, importing 0% coverage.
+          projectBaseDir: typescript
           args: >
             -Dsonar.projectKey=thinking-tools-at-codeberg_device-seal-ts
             -Dsonar.organization=thinking-tools-at-codeberg
             -Dsonar.scm.provider=git
-            -Dsonar.sources=typescript/src
-            -Dsonar.coverage.exclusions="**/*"
-          projectBaseDir: .
+            -Dsonar.sources=src
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info

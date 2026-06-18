@@ -1,5 +1,8 @@
 # device-seal (Browser)
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=coverage)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+
 🦭 Device-bound, user-verified key custody and local encrypted storage for local-fist apps — no backend.
 
 ⚠️ NO independent audit or review yet! Use on your own risk!

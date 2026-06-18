@@ -23,6 +23,7 @@
     "dev": "npm run build && node scripts/dev-server.mjs",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write '**/*.{js,ts}' '**/*.{js,ts}'",
+    "format:check": "prettier --check '**/*.{js,ts}'",
     "prepack": "npm run build && npm run build:cdn",
     "test": "vitest run --coverage",
     "test:watch": "vitest"
