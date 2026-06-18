@@ -1,0 +1,67 @@
+{
+  "name": "device-seal",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "unpkg": "./dist/device-seal.min.js",
+  "jsdelivr": "./dist/device-seal.min.js",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "build:cdn": "esbuild src/index.ts --bundle --minify --sourcemap --format=esm --platform=browser --target=es2022 --banner:js='/*! device-seal | MIT | codeberg.org/thinking_tools/device-seal */' --outfile=dist/device-seal.min.js",
+    "dev": "npm run build && node scripts/dev-server.mjs",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write '**/*.{js,ts}' '**/*.{js,ts}'",
+    "prepack": "npm run build && npm run build:cdn",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "homepage": "https://codeberg.org/thinking_tools/device-seal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://codeberg.org/thinking_tools/device-seal.git"
+  },
+  "keywords": [
+    "aes-256-gcm",
+    "cross-platform",
+    "e2ee",
+    "hkdf",
+    "local-first",
+    "passkey",
+    "passkeys",
+    "prf",
+    "quantum-resistant",
+    "secure-enclave",
+    "webauthn"
+  ],
+  "author": "thinking.tools",
+  "license": "MIT",
+  "description": "🦭 Device-bound, user-verified key custody and local encrypted storage (no backend). Browser implementation (WebAuthn PRF). Quantum-resistant symmetric core: AES-256-GCM + HKDF-SHA-512 (CNSA 2.0 symmetric/hash primitives, NIST PQC Cat 5)",
+  "devDependencies": {
+    "esbuild": "0.28.1",
+    "fast-check": "^4.8.0",
+    "prettier": "3.8.4",
+    "typescript": "6.0.3"
+  },
+  "prettier": {
+    "bracketSpacing": true,
+    "bracketSameLine": false,
+    "singleQuote": true,
+    "semi": true,
+    "endOfLine": "lf",
+    "tabWidth": 2,
+    "trailingComma": "all",
+    "arrowParens": "avoid",
+    "printWidth": 120
+  }
+}

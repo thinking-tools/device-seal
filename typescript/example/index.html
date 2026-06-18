@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en" data-accent="teal" data-radius="soft">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>device-seal — browser demo</title>
+
+    <!-- teff: classless/semantic CSS + web components, straight from the CDN (pinned). -->
+    <link rel="stylesheet" href="https://unpkg.com/@thinking.tools/teff@1.0.4/teff.min.css" />
+    <script src="https://unpkg.com/@thinking.tools/teff@1.0.4/teff.min.js" defer></script>
+
+    <style>
+      /* A calmer, narrower reading column than teff's 1280px default, plus a few small helpers
+         (teff ships no stack/cluster/truncate utilities). Everything else is teff out of the box. */
+      .shell {
+        --container-max: 56rem;
+        padding-block: var(--space-8);
+      }
+      .stack > * + * {
+        margin-block-start: var(--space-4);
+      }
+      .cluster {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--space-2);
+      }
+      .between {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-3);
+      }
+      #list-form input {
+        width: 11rem;
+        max-width: 100%;
+      }
+      .muted {
+        opacity: 0.66;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+      .trunc {
+        min-width: 0;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      form.stack label {
+        display: block;
+        margin-block-end: var(--space-1);
+      }
+      form.stack input {
+        width: 100%;
+      }
+      /* compact, scannable result block */
+      .result {
+        display: grid;
+        gap: var(--space-1) var(--space-3);
+        margin: 0;
+      }
+      .result dt {
+        font-size: 0.8em;
+        opacity: 0.66;
+        margin-block-start: var(--space-2);
+      }
+      .result dd {
+        margin: 0;
+      }
+      /* credential cards instead of a wide UUID table */
+      .credentials {
+        --autogrid-min: 15rem;
+      }
+      .credential {
+        display: grid;
+        gap: var(--space-2);
+        padding: var(--space-4);
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container shell stack">
+      <header class="stack">
+        <div class="between">
+          <strong>🦭 device-seal</strong>
+          <span class="cluster">
+            <label for="theme" class="muted">Theme</label>
+            <select id="theme">
+              <option value="auto">Auto</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </span>
+        </div>
+        <hgroup>
+          <h1>Browser demo</h1>
+          <p class="muted">
+            A secret is encrypted on this device and read back only after you verify on your passkey.
+            Nothing leaves the machine.
+          </p>
+        </hgroup>
+        <output id="capability" hidden></output>
+      </header>
+
+      <main class="stack">
+        <div class="autogrid" style="--autogrid-min: 22rem">
+          <section class="card stack" aria-labelledby="create-heading">
+            <hgroup>
+              <h2 id="create-heading">Create &amp; seal</h2>
+              <p class="muted">Registers a passkey, then stores the encrypted secret.</p>
+            </hgroup>
+            <form id="create-form" class="stack">
+              <div>
+                <label for="create-username">Username</label>
+                <input id="create-username" name="username" value="alice@example.com" required />
+              </div>
+              <div>
+                <label for="create-secret">Secret</label>
+                <input id="create-secret" name="secret" placeholder="blank → random 32 bytes" />
+              </div>
+              <div>
+                <label for="create-label">Label</label>
+                <input id="create-label" name="label" placeholder="defaults to the username" />
+              </div>
+              <div>
+                <label for="create-passphrase">Passphrase <span class="muted">— optional 2nd factor</span></label>
+                <input id="create-passphrase" name="passphrase" type="password" autocomplete="new-password" placeholder="blank → none" />
+              </div>
+              <details>
+                <summary class="muted">Advanced</summary>
+                <div class="stack" style="margin-block-start: var(--space-3)">
+                  <div>
+                    <label for="create-appname">applicationName</label>
+                    <input id="create-appname" name="applicationName" placeholder="passkey-vault" />
+                  </div>
+                  <div>
+                    <label for="create-appversion">applicationVersion</label>
+                    <input id="create-appversion" name="applicationVersion" type="number" min="1" step="1" placeholder="1" />
+                  </div>
+                  <div>
+                    <label for="create-db">databaseName</label>
+                    <input id="create-db" name="databaseName" placeholder="passkeyVault" />
+                  </div>
+                </div>
+              </details>
+              <button type="submit">Create credential</button>
+            </form>
+            <output id="create-out" hidden></output>
+          </section>
+
+          <section class="card stack" aria-labelledby="access-heading">
+            <hgroup>
+              <h2 id="access-heading">Unlock</h2>
+              <p class="muted">Verify on your authenticator to decrypt one entry.</p>
+            </hgroup>
+            <form id="access-form" class="stack">
+              <div>
+                <label for="access-id">Identifier</label>
+                <input id="access-id" name="identifier" class="mono" placeholder="pick one below, or paste a UUID" required />
+              </div>
+              <div>
+                <label for="access-passphrase">Passphrase <span class="muted">— only if required</span></label>
+                <input id="access-passphrase" name="passphrase" type="password" autocomplete="off" placeholder="leave blank unless the entry shows 🔒" />
+              </div>
+              <button type="submit">Reveal secret</button>
+            </form>
+            <output id="access-out" hidden></output>
+          </section>
+        </div>
+
+        <section class="card stack" aria-labelledby="list-heading">
+          <div class="between">
+            <hgroup>
+              <h2 id="list-heading">Stored credentials</h2>
+              <p class="muted">Metadata only — no decryption, no prompt.</p>
+            </hgroup>
+            <form id="list-form" class="cluster" role="search">
+              <input id="list-username" name="username" placeholder="filter: username" aria-label="Filter by username" />
+              <button type="submit" class="outline">Filter</button>
+            </form>
+          </div>
+          <output id="list-out" hidden></output>
+        </section>
+      </main>
+
+      <footer class="muted">
+        <p>
+          Origin binding (rpId): <code class="mono" id="host-note"></code> — entries unlock only on the
+          hostname they were created on.
+        </p>
+        <p><a href="https://codeberg.org/thinking_tools/device-seal">codeberg.org/thinking_tools/device-seal</a> · MIT</p>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { createCredential, listCredentials, accessCredential } from '../dist/index.js';
+
+      const $ = (selector, root = document) => root.querySelector(selector);
+      const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char],
+        );
+      const errorMessage = (error) => (error instanceof Error ? error.message : String(error));
+      const toHex = (bytes) => Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      const asUtf8 = (bytes) => {
+        try {
+          return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch {
+          return null;
+        }
+      };
+
+      // Renders a teff alert (role="alert" for errors, role="status" otherwise) plus optional detail HTML.
+      // `message` and `detailHtml` are treated as HTML, so dynamic text must be escaped by the caller.
+      const report = (out, variant, message, detailHtml = '') => {
+        const role = variant === 'danger' ? 'alert' : 'status';
+        out.hidden = false;
+        out.innerHTML = `<div role="${role}" data-variant="${variant}">${message}</div>${detailHtml}`;
+      };
+
+      // A copy button whose text is escaped for attribute context by escapeHtml (it encodes quotes).
+      const copyButton = (text, label = 'Copy') =>
+        `<button type="button" class="small ghost" data-copy="${escapeHtml(text)}">${label}</button>`;
+
+      const renderSecret = (entry, secret) => {
+        const text = asUtf8(secret);
+        const hex = toHex(secret);
+        return `
+          <dl class="result">
+            <dt>Identifier</dt>
+            <dd class="cluster"><code class="mono trunc">${escapeHtml(entry.identifier)}</code>${copyButton(entry.identifier)}</dd>
+            <dt>Secret · ${secret.length} bytes · UTF-8</dt>
+            <dd class="cluster">${
+              text === null
+                ? '<em class="muted">binary (not valid UTF-8)</em>'
+                : `<code class="mono trunc">${escapeHtml(text)}</code>${copyButton(text)}`
+            }</dd>
+            <dt>Secret · hex</dt>
+            <dd class="cluster"><code class="mono trunc">${hex}</code>${copyButton(hex)}</dd>
+          </dl>`;
+      };
+
+      // Disables the form's submit button and shows a busy label while an async action runs, then restores it.
+      const withBusy = async (form, busyLabel, action) => {
+        const button = form.querySelector('button[type="submit"], button:not([type])');
+        const previousLabel = button?.textContent;
+        if (button) {
+          button.disabled = true;
+          button.textContent = busyLabel;
+        }
+        form.setAttribute('aria-busy', 'true');
+        try {
+          await action();
+        } finally {
+          form.removeAttribute('aria-busy');
+          if (button) {
+            button.disabled = false;
+            button.textContent = previousLabel;
+          }
+        }
+      };
+
+      const trimmed = (formData, key) => {
+        const value = formData.get(key);
+        return typeof value === 'string' ? value.trim() : '';
+      };
+
+      const accessId = $('#access-id');
+      const accessForm = $('#access-form');
+      const accessOut = $('#access-out');
+      const accessPassphrase = $('#access-passphrase');
+
+      // --- create ---
+      const createForm = $('#create-form');
+      createForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const formData = new FormData(createForm);
+        const options = {
+          username: trimmed(formData, 'username'),
+        };
+        const secret = trimmed(formData, 'secret');
+        if (secret) options.secret = secret;
+        const label = trimmed(formData, 'label');
+        if (label) options.label = label;
+        const passphrase = trimmed(formData, 'passphrase');
+        if (passphrase) options.passphrase = passphrase;
+        const applicationName = trimmed(formData, 'applicationName');
+        if (applicationName) options.applicationName = applicationName;
+        const applicationVersion = trimmed(formData, 'applicationVersion');
+        if (applicationVersion) options.applicationVersion = Number(applicationVersion);
+        const databaseName = trimmed(formData, 'databaseName');
+        if (databaseName) options.databaseName = databaseName;
+
+        return withBusy(createForm, 'Waiting for your authenticator…', async () => {
+          try {
+            const { entry, secret: bytes } = await createCredential(options);
+            report($('#create-out'), 'success', 'Sealed.', renderSecret(entry, bytes));
+            accessId.value = entry.identifier;
+            await refreshList();
+          } catch (error) {
+            report($('#create-out'), 'danger', escapeHtml(errorMessage(error)));
+          }
+        });
+      });
+
+      // --- list (as scannable cards) ---
+      const listForm = $('#list-form');
+      const renderList = (entries) => {
+        const out = $('#list-out');
+        out.hidden = false;
+        if (entries.length === 0) {
+          out.innerHTML = '<p class="muted">No stored credentials match.</p>';
+          return;
+        }
+        const cards = entries
+          .map(
+            (entry) => `
+            <article class="card credential">
+              <div class="between">
+                <strong class="trunc" title="${escapeHtml(entry.label)}">${escapeHtml(entry.label)}</strong>
+                <span class="cluster">
+                  ${entry.passphrased ? '<span class="badge" title="Requires a passphrase to unlock">🔒 passphrase</span>' : ''}
+                  <span class="badge"><time datetime="${escapeHtml(entry.createdAt)}">${escapeHtml(new Date(entry.createdAt).toLocaleDateString())}</time></span>
+                </span>
+              </div>
+              <span class="muted trunc" title="${escapeHtml(entry.username)}">${escapeHtml(entry.username)}</span>
+              <div class="cluster">
+                <button type="button" class="small" data-unlock="${escapeHtml(entry.identifier)}">Unlock</button>
+                ${copyButton(entry.identifier, 'Copy ID')}
+              </div>
+            </article>`,
+          )
+          .join('');
+        out.innerHTML = `<div class="autogrid credentials">${cards}</div>`;
+      };
+      const refreshList = async () => {
+        const formData = new FormData(listForm);
+        const filter = {};
+        const username = trimmed(formData, 'username');
+        if (username) filter.username = username;
+        try {
+          renderList(await listCredentials(filter));
+        } catch (error) {
+          report($('#list-out'), 'danger', escapeHtml(errorMessage(error)));
+        }
+      };
+      listForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        refreshList();
+      });
+
+      // --- access (shared by the form and each card's Unlock button) ---
+      const runAccess = (identifier) => {
+        accessId.value = identifier;
+        const options = { identifier };
+        const passphrase = accessPassphrase.value.trim();
+        if (passphrase) options.passphrase = passphrase;
+        return withBusy(accessForm, 'Waiting for your authenticator…', async () => {
+          try {
+            const { entry, secret } = await accessCredential(options);
+            report(accessOut, 'success', 'Unlocked — decrypted secret:', renderSecret(entry, secret));
+          } catch (error) {
+            report(accessOut, 'danger', escapeHtml(errorMessage(error)));
+          }
+        });
+      };
+      accessForm.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const identifier = accessId.value.trim();
+        if (!identifier) {
+          report(accessOut, 'danger', 'Enter an identifier first.');
+          return;
+        }
+        runAccess(identifier);
+      });
+
+      // Delegated handlers: card "Unlock" buttons, and any [data-copy] button.
+      document.addEventListener('click', (event) => {
+        const unlock = event.target.closest('[data-unlock]');
+        if (unlock) {
+          $('#access-heading').scrollIntoView({ behavior: 'smooth', block: 'start' });
+          runAccess(unlock.dataset.unlock);
+          return;
+        }
+        const copy = event.target.closest('[data-copy]');
+        if (copy && navigator.clipboard) {
+          navigator.clipboard
+            .writeText(copy.dataset.copy)
+            .then(() => {
+              const original = copy.textContent;
+              copy.textContent = 'Copied';
+              setTimeout(() => (copy.textContent = original), 1200);
+            })
+            .catch(() => {});
+        }
+      });
+
+      // --- theme toggle (teff reads data-theme on <html>) ---
+      $('#theme').addEventListener('change', (event) => {
+        const value = event.target.value;
+        if (value === 'auto') delete document.documentElement.dataset.theme;
+        else document.documentElement.dataset.theme = value;
+      });
+
+      // --- capability banner + first list ---
+      $('#host-note').textContent = location.hostname;
+      if (!window.isSecureContext) {
+        report(
+          $('#capability'),
+          'danger',
+          'Not a secure context — WebAuthn and crypto.subtle are unavailable. Serve over HTTPS or http://localhost.',
+        );
+      } else if (!window.PublicKeyCredential || !navigator.credentials) {
+        report($('#capability'), 'danger', 'WebAuthn is not available in this browser.');
+      } else {
+        report(
+          $('#capability'),
+          'success',
+          `Ready. Passkeys created here bind to rpId <code class="mono">${escapeHtml(location.hostname)}</code>.`,
+        );
+      }
+      refreshList();
+    </script>
+  </body>
+</html>
