@@ -5,6 +5,8 @@ import {
   saveEntry,
   loadEntry,
   loadAllEntries,
+  deleteEntry,
+  clearEntries,
 } from '../src/_storage.js';
 import type { StoredEntry, StorageLocation } from '../src/_types.js';
 
@@ -101,5 +103,24 @@ describe('runTransaction failure handling', () => {
     // An object with no `identifier` violates the keyPath, so store.put throws DataError synchronously,
     // exercising the try/catch around transaction setup.
     await expect(saveEntry(LOC, {} as unknown as StoredEntry)).rejects.toThrow();
+  });
+});
+
+describe('deleteEntry / clearEntries', () => {
+  it('deletes a single row and is a no-op for a missing identifier', async () => {
+    await saveEntry(LOC, makeEntry('a'));
+    await saveEntry(LOC, makeEntry('b'));
+    await deleteEntry(LOC, 'a');
+    expect(await loadEntry(LOC, 'a')).toBeUndefined();
+    expect((await loadAllEntries(LOC)).map(r => r.identifier)).toEqual(['b']);
+    await deleteEntry(LOC, 'missing'); // delete of an absent key resolves without throwing
+    expect((await loadAllEntries(LOC)).length).toBe(1);
+  });
+
+  it('clears the entire store', async () => {
+    await saveEntry(LOC, makeEntry('a'));
+    await saveEntry(LOC, makeEntry('b'));
+    await clearEntries(LOC);
+    expect(await loadAllEntries(LOC)).toEqual([]);
   });
 });

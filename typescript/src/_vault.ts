@@ -5,10 +5,20 @@ import type {
   CreateCredentialOptions,
   AccessCredentialOptions,
   ListCredentialsFilter,
+  RemoveCredentialOptions,
+  WipeVaultOptions,
   CredentialResult,
   VaultConfig,
 } from './_types.js';
-import { resolveStorageLocation, requestPersistentStorage, saveEntry, loadEntry, loadAllEntries } from './_storage.js';
+import {
+  resolveStorageLocation,
+  requestPersistentStorage,
+  saveEntry,
+  loadEntry,
+  loadAllEntries,
+  deleteEntry,
+  clearEntries,
+} from './_storage.js';
 import {
   normalizeSecret,
   encrypt,
@@ -18,6 +28,7 @@ import {
   deriveSecretKey,
   evaluatePasskeySecret,
   derivePassphraseMaterial,
+  bestEffortRemoveCredential,
 } from './_crypto.js';
 import { additionalDataFor } from './_helpers.js';
 import { resolveAppIdentitySync } from './_app-identity.js';
@@ -171,8 +182,61 @@ export const accessCredential = async (options: AccessCredentialOptions): Promis
   return { entry: toPublicMetadata(entry), secret: secretBytes };
 };
 
+/**
+ * Permanently deletes a stored credential and best-effort asks the platform credential manager to drop
+ * the now-orphaned passkey. No user verification is required: deletion exposes no plaintext, and any
+ * same-origin caller could clear IndexedDB directly, so a ceremony would add a footgun (a lost or
+ * unusable authenticator could never clean up its own entry) without adding security. This is
+ * irreversible — the encrypted secret cannot be recovered afterwards.
+ *
+ * @param options.identifier The `identifier` of the entry to delete (required).
+ * @param options.databaseName IndexedDB database the entry lives in (default `passkeyVault`).
+ * @param options.databaseVersion Advanced: explicit IndexedDB version to open with; omit to use the
+ *   database's current version.
+ * @returns `true` if an entry was deleted, `false` if no entry matched (idempotent no-op).
+ */
+export const removeCredential = async (options: RemoveCredentialOptions): Promise<boolean> => {
+  const { identifier } = options;
+  if (!identifier) {
+    throw new Error('identifier is required');
+  }
+  const storageLocation = resolveStorageLocation(options);
+  const entry = await loadEntry(storageLocation, identifier);
+  if (!entry) {
+    return false;
+  }
+  await deleteEntry(storageLocation, identifier);
+  // The local ciphertext is gone; now best-effort tell the authenticator to forget the orphaned passkey.
+  await bestEffortRemoveCredential(entry.credentialIdentifier);
+  return true;
+};
+
+/**
+ * Deletes every stored credential in a database and best-effort asks the platform credential manager to
+ * drop each now-orphaned passkey. Like removeCredential this requires no user verification and is
+ * irreversible.
+ *
+ * @param options.databaseName IndexedDB database to empty (default `passkeyVault`).
+ * @param options.databaseVersion Advanced: explicit IndexedDB version to open with; omit to use the
+ *   database's current version.
+ * @returns The number of entries removed.
+ */
+export const wipeVault = async (options: WipeVaultOptions = {}): Promise<number> => {
+  const storageLocation = resolveStorageLocation(options);
+  // Read the credential ids before clearing so each orphaned passkey can be signalled afterwards.
+  const entries = await loadAllEntries(storageLocation);
+  if (entries.length === 0) {
+    return 0;
+  }
+  await clearEntries(storageLocation);
+  await Promise.all(entries.map(entry => bestEffortRemoveCredential(entry.credentialIdentifier)));
+  return entries.length;
+};
+
 export const createVault = (config: VaultConfig = {}) => ({
   create: (o: Omit<CreateCredentialOptions, keyof VaultConfig>) => createCredential({ ...config, ...o }),
   access: (o: Omit<AccessCredentialOptions, keyof VaultConfig>) => accessCredential({ ...config, ...o }),
   list: (f: Omit<ListCredentialsFilter, keyof VaultConfig> = {}) => listCredentials({ ...config, ...f }),
+  remove: (o: Omit<RemoveCredentialOptions, keyof VaultConfig>) => removeCredential({ ...config, ...o }),
+  wipe: (o: Omit<WipeVaultOptions, keyof VaultConfig> = {}) => wipeVault({ ...config, ...o }),
 });

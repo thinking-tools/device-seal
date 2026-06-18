@@ -118,3 +118,13 @@ export const loadAllEntries = (storageLocation: StorageLocation): Promise<Stored
   runTransaction(storageLocation, 'readonly', store =>
     promisifyRequest(store.getAll() as IDBRequest<StoredEntryRow[]>),
   );
+
+// Deletes one record by its identifier. IndexedDB treats delete of an absent key as success (no-op), so
+// this never rejects on a missing entry; the caller decides what that means.
+export const deleteEntry = (storageLocation: StorageLocation, identifier: string): Promise<void> =>
+  runTransaction(storageLocation, 'readwrite', store => promisifyRequest(store.delete(identifier)));
+
+// Empties the entire object store in one transaction. Keeps the database and schema (no version churn),
+// so the store reopens at its current version afterwards.
+export const clearEntries = (storageLocation: StorageLocation): Promise<void> =>
+  runTransaction(storageLocation, 'readwrite', store => promisifyRequest(store.clear()));

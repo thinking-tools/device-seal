@@ -1,8 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { createCredential, accessCredential, listCredentials, createVault } from '../src/_vault.js';
+import {
+  createCredential,
+  accessCredential,
+  listCredentials,
+  removeCredential,
+  wipeVault,
+  createVault,
+} from '../src/_vault.js';
 import { loadEntry, saveEntry } from '../src/_storage.js';
-import { installAuthenticator } from './_fakes.js';
+import { installAuthenticator, toB64Url } from './_fakes.js';
 import type { StorageLocation, StoredEntry, StoredEntryRow } from '../src/_types.js';
 
 const DEFAULT_LOC: StorageLocation = { databaseName: 'passkeyVault', databaseVersion: undefined };
@@ -142,6 +149,63 @@ describe('listCredentials', () => {
   });
 });
 
+describe('removeCredential', () => {
+  it('deletes the entry and signals the authenticator to drop the orphaned passkey', async () => {
+    const h = installAuthenticator();
+    const { entry } = await createCredential({ username: 'r', secret: 'x' });
+    expect(await removeCredential({ identifier: entry.identifier })).toBe(true);
+    expect(await listCredentials({})).toEqual([]);
+    expect(h.signalSpy).toHaveBeenCalledWith({ rpId: 'localhost', credentialId: toB64Url(h.createdIds[0]!) });
+  });
+
+  it('returns false for an unknown identifier and signals nothing', async () => {
+    const h = installAuthenticator();
+    expect(await removeCredential({ identifier: 'nope' })).toBe(false);
+    expect(h.signalSpy).not.toHaveBeenCalled();
+  });
+
+  it('requires an identifier', async () => {
+    await expect(removeCredential({ identifier: '' })).rejects.toThrow(/identifier is required/);
+  });
+
+  it('purges local data even when WebAuthn is unavailable', async () => {
+    // No authenticator installed -> no window/PublicKeyCredential; deletion must still work and skip the
+    // (impossible) authenticator signal. Seed a row directly so no ceremony is needed to create it.
+    const row: StoredEntry = {
+      identifier: 'manual',
+      username: 'u',
+      label: 'u',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      applicationContext: 'app/v1/',
+      credentialIdentifier: new Uint8Array([1, 2, 3]),
+      salt: new Uint8Array(32),
+      initializationVector: new Uint8Array(12),
+      ciphertext: new Uint8Array([9]),
+      passphrased: false,
+    };
+    await saveEntry(DEFAULT_LOC, row);
+    expect(await removeCredential({ identifier: 'manual' })).toBe(true);
+    expect(await loadEntry(DEFAULT_LOC, 'manual')).toBeUndefined();
+  });
+});
+
+describe('wipeVault', () => {
+  it('clears every entry, returns the count, and signals each authenticator credential', async () => {
+    const h = installAuthenticator();
+    await createCredential({ username: 'a', secret: '1' });
+    await createCredential({ username: 'b', secret: '2' });
+    expect(await wipeVault({})).toBe(2);
+    expect(await listCredentials({})).toEqual([]);
+    expect(h.signalSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 0 and signals nothing for an already-empty store', async () => {
+    const h = installAuthenticator();
+    expect(await wipeVault({})).toBe(0);
+    expect(h.signalSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('createVault', () => {
   it('binds shared config, lets per-call options override it, and round-trips', async () => {
     installAuthenticator();
@@ -151,5 +215,16 @@ describe('createVault', () => {
     expect(decode((await vault.access({ identifier: entry.identifier })).secret)).toBe('vv');
     // a per-call databaseName overrides the bound one, hitting a different (empty) store
     expect(await vault.list({ databaseName: 'otherdb' })).toEqual([]);
+  });
+
+  it('exposes remove and wipe bound to the configured database', async () => {
+    installAuthenticator();
+    const vault = createVault({ databaseName: 'vaultdb2' });
+    const { entry } = await vault.create({ username: 'a', secret: 'x' });
+    await vault.create({ username: 'b', secret: 'y' });
+    expect(await vault.remove({ identifier: entry.identifier })).toBe(true);
+    expect((await vault.list({})).length).toBe(1);
+    expect(await vault.wipe()).toBe(1);
+    expect(await vault.list({})).toEqual([]);
   });
 });

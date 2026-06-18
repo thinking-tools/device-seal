@@ -70,6 +70,17 @@ export interface AccessCredentialOptions {
   databaseVersion?: number;
 }
 
+export interface RemoveCredentialOptions {
+  identifier: string;
+  databaseName?: string;
+  databaseVersion?: number;
+}
+
+export interface WipeVaultOptions {
+  databaseName?: string;
+  databaseVersion?: number;
+}
+
 export interface CredentialResult {
   entry: CredentialMetadata;
   secret: Uint8Array<ArrayBuffer>;

@@ -119,13 +119,18 @@ const toBase64Url = (bytes: Bytes): string => {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 };
 
-// Best-effort cleanup for a credential we created but cannot use. signalUnknownCredential() asks the
+// Best-effort cleanup for a credential we no longer want stored — a failed registration, or an explicit
+// removeCredential/wipeVault. signalUnknownCredential() asks the
 // platform credential manager to drop a credential the relying party no longer recognizes — it is a hint
 // (the manager decides) and is not yet universally supported, so a missing method or any rejection is
 // swallowed. This shrinks, but cannot guarantee removal of, the orphan a non-PRF authenticator can leave
 // behind: capabilities are client-level, so the pre-flight above cannot prevent that one credential.
-const bestEffortRemoveCredential = async (credentialIdentifier: Bytes): Promise<void> => {
-  if (typeof window.PublicKeyCredential.signalUnknownCredential !== 'function') return;
+export const bestEffortRemoveCredential = async (credentialIdentifier: Bytes): Promise<void> => {
+  // Guard for non-browser/SSR (no `window`) and clients without the signal API; either way there is no
+  // credential manager to hint, so quietly skip. This also lets removeCredential/wipeVault purge local
+  // data when WebAuthn is unavailable.
+  if (typeof window === 'undefined' || typeof window.PublicKeyCredential?.signalUnknownCredential !== 'function')
+    return;
   try {
     await window.PublicKeyCredential.signalUnknownCredential({
       rpId: relyingPartyIdentifier(),
