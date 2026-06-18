@@ -2,6 +2,8 @@
 
 🦭 Device-bound, user-verified key custody and local encrypted storage for local-fist apps — no backend.
 
+⚠️ NO independent audit or review yet! Use on your own risk!
+
 - 🔐 **Device-bound & user-verified.** Each secret is sealed behind a WebAuthn passkey (PRF extension); every
   read demands a fresh on-device user-verification ceremony, and the encryption key is re-derived per call and never stored.
 - 🚫 **Build for Local-first. Zero backend.** No server, no account, no key material in transit — the secret, the key, and the salt never leave the device.

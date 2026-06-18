@@ -24,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write '**/*.{js,ts}' '**/*.{js,ts}'",
     "prepack": "npm run build && npm run build:cdn",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
   },
   "homepage": "https://codeberg.org/thinking_tools/device-seal",
   "repository": {
@@ -48,10 +49,13 @@
   "license": "MIT",
   "description": "🦭 Device-bound, user-verified key custody and local encrypted storage (no backend). Browser implementation (WebAuthn PRF). Quantum-resistant symmetric core: AES-256-GCM + HKDF-SHA-512 (CNSA 2.0 symmetric/hash primitives, NIST PQC Cat 5)",
   "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.9",
     "esbuild": "0.28.1",
+    "fake-indexeddb": "^6.2.5",
     "fast-check": "^4.8.0",
     "prettier": "3.8.4",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "^4.1.9"
   },
   "prettier": {
     "bracketSpacing": true,
