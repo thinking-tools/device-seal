@@ -5,7 +5,7 @@ const STORE_NAME = 'entries';
 const promisifyRequest = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
   });
 
 // Applies the default database name; the version is passed through unchanged (see StorageLocation).
@@ -58,7 +58,7 @@ const openDatabase = (storageLocation: StorageLocation): Promise<IDBDatabase> =>
       }
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB database'));
     request.onblocked = () => {
       // The open may still succeed once the blocking connection closes; close that late result so the
       // already-rejected promise does not leave an orphaned connection open.
@@ -91,7 +91,7 @@ const runTransaction = <T>(
           };
           transaction.onerror = () => {
             database.close();
-            reject(transaction.error);
+            reject(transaction.error ?? new Error('IndexedDB transaction failed'));
           };
           transaction.onabort = () => {
             database.close();

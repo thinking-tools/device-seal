@@ -93,7 +93,7 @@ export const deriveSecretKey = async (
 };
 
 const ensurePasskeySupport = (): void => {
-  if (!window.PublicKeyCredential || !navigator.credentials) {
+  if (!globalThis.PublicKeyCredential || !navigator.credentials) {
     throw new Error('WebAuthn is not available in this browser');
   }
 };
@@ -106,7 +106,7 @@ const ensurePasskeySupport = (): void => {
 // discoverable one becomes an orphaned passkey the relying party cannot delete). It cannot catch a
 // PRF-capable client paired with a non-PRF authenticator: capabilities are client-level, not per-device.
 const ensurePrfClientSupport = async (): Promise<void> => {
-  const capabilities = await window.PublicKeyCredential.getClientCapabilities?.();
+  const capabilities = await globalThis.PublicKeyCredential.getClientCapabilities?.();
   if (capabilities?.['extension:prf'] === false) {
     throw new Error('This browser does not support the WebAuthn PRF extension required to protect secrets');
   }
@@ -115,7 +115,7 @@ const ensurePrfClientSupport = async (): Promise<void> => {
 // base64url-encodes a credential id for the WebAuthn signal API, which takes a Base64URLString, not bytes.
 const toBase64Url = (bytes: Bytes): string => {
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 };
 
@@ -126,13 +126,12 @@ const toBase64Url = (bytes: Bytes): string => {
 // swallowed. This shrinks, but cannot guarantee removal of, the orphan a non-PRF authenticator can leave
 // behind: capabilities are client-level, so the pre-flight above cannot prevent that one credential.
 export const bestEffortRemoveCredential = async (credentialIdentifier: Bytes): Promise<void> => {
-  // Guard for non-browser/SSR (no `window`) and clients without the signal API; either way there is no
-  // credential manager to hint, so quietly skip. This also lets removeCredential/wipeVault purge local
-  // data when WebAuthn is unavailable.
-  if (typeof window === 'undefined' || typeof window.PublicKeyCredential?.signalUnknownCredential !== 'function')
-    return;
+  // Guard for non-browser/SSR and clients without the signal API: with no `PublicKeyCredential` (Node/SSR)
+  // or one lacking signalUnknownCredential, there is no credential manager to hint, so quietly skip. This
+  // also lets removeCredential/wipeVault purge local data when WebAuthn is unavailable.
+  if (typeof globalThis.PublicKeyCredential?.signalUnknownCredential !== 'function') return;
   try {
-    await window.PublicKeyCredential.signalUnknownCredential({
+    await globalThis.PublicKeyCredential.signalUnknownCredential({
       rpId: relyingPartyIdentifier(),
       credentialId: toBase64Url(credentialIdentifier),
     });

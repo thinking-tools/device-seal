@@ -12,7 +12,7 @@ export const prfSecret = async (evalFirst: BufferSource): Promise<Uint8Array> =>
 /** Same base64url transform the production toBase64Url uses, for asserting the signalled credential id. */
 export const toB64Url = (bytes: Uint8Array): string => {
   let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 };
 
@@ -35,7 +35,7 @@ export interface FakeHandles {
   createdIds: Uint8Array[];
 }
 
-/** Installs window/navigator/location stubs for one test. afterEach (setup.ts) unstubs them. */
+/** Installs PublicKeyCredential/navigator/location stubs for one test. afterEach (setup.ts) unstubs them. */
 // eslint not used in this repo; `any` is the deliberate test-double exception noted above.
 export const installAuthenticator = (opts: FakeOptions = {}): FakeHandles => {
   const {
@@ -77,14 +77,12 @@ export const installAuthenticator = (opts: FakeOptions = {}): FakeHandles => {
   if (clientCapabilities !== null) PublicKeyCredential.getClientCapabilities = async () => caps;
   if (hasSignalUnknownCredential) PublicKeyCredential.signalUnknownCredential = signalSpy;
 
-  const win: any = {};
-  if (!omitPublicKeyCredential) win.PublicKeyCredential = PublicKeyCredential;
-
   const nav: any = {};
   if (!omitCredentialsContainer) nav.credentials = { create: createSpy, get: getSpy };
   nav.storage = { persist: async () => true }; // createCredential best-effort requests persistence
 
-  vi.stubGlobal('window', win);
+  // Real browsers expose these on globalThis (window === globalThis); the production code reads them there.
+  if (!omitPublicKeyCredential) vi.stubGlobal('PublicKeyCredential', PublicKeyCredential);
   vi.stubGlobal('navigator', nav);
   vi.stubGlobal('location', { hostname: 'localhost' });
 

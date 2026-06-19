@@ -1,9 +1,30 @@
-# device-seal (Browser)
+# device-seal (Browser and more)
+
+[![Last commit](https://img.shields.io/gitea/last-commit/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org&branch=main&color=green)](https://codeberg.org/thinking_tools/device-seal/commits/branch/main)
+[![Open issues](https://img.shields.io/gitea/issues/open/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org)](https://codeberg.org/thinking_tools/device-seal/issues)
+[![Format, test & SonarCloud](https://codeberg.org/thinking_tools/device-seal/actions/workflows/sonarcloud.yml/badge.svg?branch=main)](https://codeberg.org/thinking_tools/device-seal/actions?workflow=sonarcloud.yml)
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=coverage)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=bugs)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
+
+[![Codeberg stars](https://img.shields.io/gitea/stars/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org&style=social)](https://codeberg.org/thinking_tools/device-seal)
+[![NPM Downloads](https://img.shields.io/npm/dm/device-seal)](https://www.npmjs.com/package/device-seal)
+[![NPM Version](https://img.shields.io/npm/v/device-seal?color=green)](https://www.npmjs.com/package/device-seal)
+[![Bundle size](https://img.shields.io/bundlejs/size/device-seal?color=green)](https://www.npmjs.com/package/device-seal)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://codeberg.org/thinking_tools/device-seal/src/branch/main/LICENSE)
 
 🦭 Device-bound, user-verified key custody and local encrypted storage for local-fist apps — no backend.
+
+[[codeberg](https://codeberg.org/thinking_tools/device-seal/)]
+[[issues](https://codeberg.org/thinking_tools/device-seal/issues)]
+[[npm](https://www.npmjs.com/package/device-seal)]
+[[github|mirror](https://github.com/thinking-tools/device-seal)]
 
 ⚠️ NO independent audit or review yet! Use on your own risk!
 

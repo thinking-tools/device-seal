@@ -35,7 +35,7 @@ const SYNTHETIC = new Set(['pwa', 'app', 'capacitor', 'ionic', 'tauri.localhost'
 const IP_RE = /^(\d{1,3}\.){3}\d{1,3}$|^\[?[0-9a-f]*:[0-9a-f:]*\]?$/i;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
-const g = (): any => (typeof globalThis !== 'undefined' ? (globalThis as any) : undefined);
+const g = (): any => (typeof globalThis === 'undefined' ? undefined : (globalThis as any));
 const cap = (): any => g()?.Capacitor;
 
 const detectPlatform = (): Platform => {
@@ -94,7 +94,10 @@ let memo: AppIdentity | undefined;
 export const resolveAppIdentity = async (opts: ResolveOptions = {}): Promise<AppIdentity> => {
   if (memo && !opts.fresh) return memo;
   const platform = detectPlatform();
-  const done = (v: AppIdentity): AppIdentity => (opts.fresh ? v : (memo = v));
+  const done = (v: AppIdentity): AppIdentity => {
+    if (!opts.fresh) memo = v;
+    return v;
+  };
 
   const ov = str(opts.override);
   if (ov) return done({ id: ov, name: ov, source: 'override', platform });
