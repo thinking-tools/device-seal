@@ -1,8 +1,6 @@
 # device-seal (Browser and more)
 
-[![Last commit](https://img.shields.io/gitea/last-commit/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org&branch=main&color=green)](https://codeberg.org/thinking_tools/device-seal/commits/branch/main)
-[![Open issues](https://img.shields.io/gitea/issues/open/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org)](https://codeberg.org/thinking_tools/device-seal/issues)
-[![Format, test & SonarCloud](https://codeberg.org/thinking_tools/device-seal/actions/workflows/sonarcloud.yml/badge.svg?branch=main)](https://codeberg.org/thinking_tools/device-seal/actions?workflow=sonarcloud.yml)
+🦭 Device-bound, user-verified key custody and local encrypted storage for local-fist apps — no backend.
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=thinking-tools-at-codeberg_device-seal-ts&metric=coverage)](https://sonarcloud.io/summary/new_code?id=thinking-tools-at-codeberg_device-seal-ts)
@@ -19,7 +17,9 @@
 [![Bundle size](https://img.shields.io/bundlejs/size/device-seal?color=green)](https://www.npmjs.com/package/device-seal)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://codeberg.org/thinking_tools/device-seal/src/branch/main/LICENSE)
 
-🦭 Device-bound, user-verified key custody and local encrypted storage for local-fist apps — no backend.
+[![Last commit](https://img.shields.io/gitea/last-commit/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org&branch=main&color=green)](https://codeberg.org/thinking_tools/device-seal/commits/branch/main)
+[![Open issues](https://img.shields.io/gitea/issues/open/thinking_tools/device-seal?gitea_url=https%3A%2F%2Fcodeberg.org)](https://codeberg.org/thinking_tools/device-seal/issues)
+[![Format, test & SonarCloud](https://codeberg.org/thinking_tools/device-seal/actions/workflows/sonarcloud.yml/badge.svg?branch=main)](https://codeberg.org/thinking_tools/device-seal/actions?workflow=sonarcloud.yml)
 
 [[codeberg](https://codeberg.org/thinking_tools/device-seal/)]
 [[issues](https://codeberg.org/thinking_tools/device-seal/issues)]
