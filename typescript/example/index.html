@@ -199,7 +199,13 @@
     </div>
 
     <script type="module">
-      import { createCredential, listCredentials, accessCredential } from '../dist/index.js';
+      // Local dev (`npm run dev` on localhost) loads the freshly built sibling bundle so the demo tests
+      // your local source; anywhere else (e.g. the Codeberg Pages mirror) loads the published package off
+      // jsdelivr, since dist/ is not committed. One file works in both, so `pages` can mirror `main` as-is.
+      const isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      const { createCredential, listCredentials, accessCredential } = await import(
+        isLocalDev ? '../dist/index.js' : 'https://cdn.jsdelivr.net/npm/device-seal/dist/device-seal.min.js'
+      );
 
       const $ = (selector, root = document) => root.querySelector(selector);
       const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
