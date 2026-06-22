@@ -20,6 +20,7 @@ import {
   clearEntries,
 } from './_storage.js';
 import {
+  sha512,
   normalizeSecret,
   encrypt,
   decrypt,
@@ -30,7 +31,7 @@ import {
   derivePassphraseMaterial,
   bestEffortRemoveCredential,
 } from './_crypto.js';
-import { additionalDataFor } from './_helpers.js';
+import { additionalDataFor, framedBytes, zeroize } from './_helpers.js';
 import { resolveAppIdentitySync } from './_app-identity.js';
 
 const DEFAULT_APPLICATION_NAME = 'passkey-vault';
@@ -63,9 +64,11 @@ const toPublicMetadata = (entry: StoredEntryRow): CredentialMetadata => ({
  * @param options.secret Secret to protect; a string is UTF-8 encoded, a Uint8Array is copied,
  *   and `undefined` generates a fresh random 32-byte secret.
  * @param options.label Human-friendly label; defaults to the username.
- * @param options.passphrase Optional second factor folded into the key via PBKDF2; when set to a
- *   non-empty string, the same passphrase is required on every access. An empty string is treated as
- *   no passphrase, so the entry is stored without passphrase protection (`passphrased: false`).
+ * @param options.passphrase Optional second factor folded (via PBKDF2) into both the authenticator's PRF
+ *   eval input and the key derivation, so each guess requires a live ceremony and a stolen vault cannot be
+ *   brute-forced offline. When set to a non-empty string, the same passphrase is required on every access.
+ *   An empty string is treated as no passphrase, so the entry is stored without passphrase protection
+ *   (`passphrased: false`).
  * @param options.databaseName IndexedDB database to store the entry in (default `passkeyVault`).
  * @param options.databaseVersion Advanced: explicit IndexedDB version to open with. Omit to use the
  *   database's current version (created at version 1 on first use); only set this to drive an upgrade.
@@ -94,30 +97,55 @@ export const createCredential = async (options: CreateCredentialOptions): Promis
   const additionalData = additionalDataFor(applicationContext, identifier);
 
   // Only the salt, nonce, and ciphertext are ever written to disk; the derived key is never stored and
-  // never extractable.
-  const { credentialIdentifier, passkeySecret } = await registerPasskey(applicationContext, username, salt);
+  // never extractable. The passphrase (when set) is folded into the PRF eval input (and, in deriveSecretKey,
+  // the HKDF ikm), so it must be derived before the ceremony, and a stolen vault cannot be brute-forced
+  // offline (testing a guess needs a live authenticator ceremony).
   const passphraseEnabled = passphrase !== undefined && passphrase.length > 0;
   const passphraseMaterial = passphraseEnabled ? await derivePassphraseMaterial(passphrase, salt) : undefined;
-  const key = await deriveSecretKey(passkeySecret, passphraseMaterial, salt, credentialIdentifier, applicationContext);
-  const { initializationVector, ciphertext } = await encrypt(key, secretBytes, additionalData);
+  const prfEvalInput = passphraseMaterial === undefined ? salt : framedBytes(salt, passphraseMaterial);
+  // Hold the raw PRF unlock secret in an outer binding so it can be wiped in the finally below, on success
+  // or on a thrown/cancelled ceremony.
+  let passkeySecret: BufferSource | undefined;
+  try {
+    const registration = await registerPasskey(applicationContext, username, await sha512(prfEvalInput));
+    passkeySecret = registration.passkeySecret;
+    const { credentialIdentifier } = registration;
+    const key = await deriveSecretKey(
+      passkeySecret,
+      passphraseMaterial,
+      salt,
+      credentialIdentifier,
+      applicationContext,
+    );
+    const { initializationVector, ciphertext } = await encrypt(key, secretBytes, additionalData);
 
-  const entry: StoredEntry = {
-    identifier,
-    username,
-    label: label ?? username,
-    createdAt: new Date().toISOString(),
-    applicationContext,
-    credentialIdentifier,
-    salt,
-    initializationVector,
-    ciphertext,
-    passphrased: passphraseEnabled,
-  };
+    const entry: StoredEntry = {
+      identifier,
+      username,
+      label: label ?? username,
+      createdAt: new Date().toISOString(),
+      applicationContext,
+      credentialIdentifier,
+      salt,
+      initializationVector,
+      ciphertext,
+      passphrased: passphraseEnabled,
+    };
 
-  await requestPersistentStorage();
-  await saveEntry(storageLocation, entry);
+    await requestPersistentStorage();
+    await saveEntry(storageLocation, entry);
 
-  return { entry: toPublicMetadata(entry), secret: secretBytes };
+    return { entry: toPublicMetadata(entry), secret: secretBytes };
+  } finally {
+    // Best-effort wipe of raw key material now that the AES key is derived (see zeroize for limits). Never
+    // wipe `salt` (persisted) or `secretBytes` (returned). prfEvalInput aliases `salt` when there is no
+    // passphrase, so only the passphrased branch allocates buffers we own and may wipe.
+    if (passkeySecret !== undefined) zeroize(passkeySecret);
+    if (passphraseMaterial !== undefined) {
+      zeroize(passphraseMaterial);
+      zeroize(prfEvalInput);
+    }
+  }
 };
 
 /**
@@ -167,19 +195,35 @@ export const accessCredential = async (options: AccessCredentialOptions): Promis
   // Reverse the chain: a fresh verification yields the unlock secret, which re-derives the same key,
   // which decrypts the secret. The matching additionalData must be supplied or GCM rejects.
   const additionalData = additionalDataFor(applicationContext, entry.identifier);
-  const passkeySecret = await evaluatePasskeySecret(entry.credentialIdentifier, entry.salt);
-
+  // Rebuild the same PRF eval input used at creation: the salt alone, or length-framed with the passphrase
+  // material when the entry is passphrase-protected. A wrong passphrase yields a different eval input and
+  // therefore a different PRF secret, so the key never re-derives and GCM rejects.
   const passphraseMaterial =
     passphraseRequired && passphrase !== undefined ? await derivePassphraseMaterial(passphrase, entry.salt) : undefined;
-  const key = await deriveSecretKey(
-    passkeySecret,
-    passphraseMaterial,
-    entry.salt,
-    entry.credentialIdentifier,
-    applicationContext,
-  );
-  const secretBytes = await decrypt(key, entry.initializationVector, entry.ciphertext, additionalData);
-  return { entry: toPublicMetadata(entry), secret: secretBytes };
+  const prfEvalInput = passphraseMaterial === undefined ? entry.salt : framedBytes(entry.salt, passphraseMaterial);
+  // Hold the raw PRF unlock secret in an outer binding so it can be wiped in the finally below.
+  let passkeySecret: BufferSource | undefined;
+  try {
+    passkeySecret = await evaluatePasskeySecret(entry.credentialIdentifier, await sha512(prfEvalInput));
+    const key = await deriveSecretKey(
+      passkeySecret,
+      passphraseMaterial,
+      entry.salt,
+      entry.credentialIdentifier,
+      applicationContext,
+    );
+    const secretBytes = await decrypt(key, entry.initializationVector, entry.ciphertext, additionalData);
+    return { entry: toPublicMetadata(entry), secret: secretBytes };
+  } finally {
+    // Best-effort wipe of raw key material (see zeroize). Never wipe `entry.salt` (still part of the loaded
+    // row) or `secretBytes` (returned). prfEvalInput aliases entry.salt without a passphrase, so only the
+    // passphrased branch allocates buffers we own and may wipe.
+    if (passkeySecret !== undefined) zeroize(passkeySecret);
+    if (passphraseMaterial !== undefined) {
+      zeroize(passphraseMaterial);
+      zeroize(prfEvalInput);
+    }
+  }
 };
 
 /**
@@ -233,6 +277,16 @@ export const wipeVault = async (options: WipeVaultOptions = {}): Promise<number>
   return entries.length;
 };
 
+/**
+ * Creates a vault handle with shared configuration (database and application namespace) pre-bound, so the
+ * common options don't have to be repeated on every call. The returned methods are thin wrappers over the
+ * standalone functions; per-call options are merged over the bound config and may override it.
+ *
+ * @param config Shared options ({@link VaultConfig}) applied to every operation; all fields optional.
+ * @returns An object exposing `create`, `access`, `list`, `remove`, and `wipe`, mirroring the standalone
+ *   {@link createCredential}, {@link accessCredential}, {@link listCredentials}, {@link removeCredential},
+ *   and {@link wipeVault} functions with the config pre-applied.
+ */
 export const createVault = (config: VaultConfig = {}) => ({
   create: (o: Omit<CreateCredentialOptions, keyof VaultConfig>) => createCredential({ ...config, ...o }),
   access: (o: Omit<AccessCredentialOptions, keyof VaultConfig>) => accessCredential({ ...config, ...o }),

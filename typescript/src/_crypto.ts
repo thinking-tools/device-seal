@@ -1,5 +1,5 @@
 import type { Bytes } from './_types.js';
-import { textEncoder, framedBytes, asBytes } from './_helpers.js';
+import { textEncoder, framedBytes, asBytes, zeroize } from './_helpers.js';
 
 // WebAuthn binds every credential to one hostname, so entries created here can only be unlocked here:
 // opening the stored data from a different hostname will not decrypt, because the rpId no longer matches.
@@ -18,18 +18,33 @@ const PUBKEY_CRED_PARAMS = [
   { type: 'public-key', alg: -257 }, // RS256  (legacy: TPM/Windows Hello)
 ] satisfies PublicKeyCredentialParameters[];
 
+// Stretches the optional passphrase into 32 fixed bytes that are length-framed into the PRF eval input
+// (not the HKDF key). PBKDF2 is not the primary barrier here — the authenticator-in-the-loop is — but it
+// adds per-guess cost as defense in depth should an authenticator's PRF secret ever be extracted.
 export const derivePassphraseMaterial = async (passphrase: string, salt: Bytes): Promise<Bytes> => {
   const PBKDF2_ITERATIONS = 700_000;
-  const baseKey = await crypto.subtle.importKey('raw', textEncoder.encode(passphrase), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-512', salt, iterations: PBKDF2_ITERATIONS },
-    baseKey,
-    256,
-  );
-  return new Uint8Array(bits);
+  const passphraseBytes = textEncoder.encode(passphrase);
+  try {
+    const baseKey = await crypto.subtle.importKey('raw', passphraseBytes, 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits(
+      { name: 'PBKDF2', hash: 'SHA-512', salt, iterations: PBKDF2_ITERATIONS },
+      baseKey,
+      256,
+    );
+    return new Uint8Array(bits);
+  } finally {
+    // Wipe our UTF-8 copy of the passphrase; PBKDF2 has absorbed it into baseKey. The original `passphrase`
+    // string is immutable and cannot be wiped (it lingers until GC) — this only clears the bytes we control.
+    zeroize(passphraseBytes);
+  }
 };
 
 export const generateRandomBytes = (length: number): Bytes => crypto.getRandomValues(new Uint8Array(length));
+
+// SHA-512 over the given bytes, returned as bytes. Thin wrapper over crypto.subtle.digest so callers get a
+// non-shared Uint8Array<ArrayBuffer> (Bytes) rather than a raw ArrayBuffer.
+export const sha512 = async (data: Bytes): Promise<Bytes> =>
+  new Uint8Array(await crypto.subtle.digest('SHA-512', data));
 
 // Encrypts the secret under the derived key, with a fresh 12-byte AES-GCM nonce; additionalData ties the
 // ciphertext to this entry.
@@ -66,9 +81,17 @@ export const decrypt = (
 // apps. The result is non-extractable and used only to encrypt/decrypt — it is the single key over the
 // plaintext and never leaves WebCrypto.
 //
-// `salt` is a public, per-entry random value; it doubles as the authenticator's PRF eval input (see the
-// ceremonies below). Reusing one public random value across those two unrelated keyed functions weakens
-// neither, and the PRF output is already uniformly random, so HKDF gains nothing from an independent salt.
+// The passphrase (when set) is bound in TWO places: primarily into the authenticator's PRF eval input
+// upstream (so testing a guess requires a live ceremony and a stolen vault cannot be brute-forced
+// offline), and additionally — via `passphraseMaterial` here — into this HKDF ikm as defense in depth, so
+// the key still needs the passphrase even if a PRF output ever leaked. The PRF-input binding is what makes
+// guessing online-only; the HKDF binding alone would not (a captured PRF output could be brute-forced
+// locally).
+//
+// `salt` is a public, per-entry random value used here as the HKDF salt; it is also the base of the PRF
+// eval input (alone when there is no passphrase, length-framed with the passphrase material when there is).
+// Reusing one public random value across those unrelated keyed functions weakens neither, and the PRF
+// output is already uniformly random, so HKDF gains nothing from an independent salt.
 export const deriveSecretKey = async (
   passkeySecret: BufferSource,
   passphraseMaterial: Bytes | undefined,
@@ -79,17 +102,24 @@ export const deriveSecretKey = async (
   const inputKeyMaterial =
     passphraseMaterial === undefined ? asBytes(passkeySecret) : framedBytes(asBytes(passkeySecret), passphraseMaterial);
 
-  const baseKey = await crypto.subtle.importKey('raw', inputKeyMaterial, 'HKDF', false, ['deriveKey']);
-  // The info uses the same length-framing as the authenticated data, pinned to the credential id, so
-  // every credential derives its own key and namespaces never collide.
-  const info = framedBytes(textEncoder.encode(applicationContext), credentialIdentifier);
-  return crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-512', salt, info },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
-  );
+  try {
+    const baseKey = await crypto.subtle.importKey('raw', inputKeyMaterial, 'HKDF', false, ['deriveKey']);
+    // The info uses the same length-framing as the authenticated data, pinned to the credential id, so
+    // every credential derives its own key and namespaces never collide.
+    const info = framedBytes(textEncoder.encode(applicationContext), credentialIdentifier);
+    return await crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-512', salt, info },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt'],
+    );
+  } finally {
+    // inputKeyMaterial is our only raw copy of the combined key material (a copy of passkeySecret, plus the
+    // passphrase material when set); the non-extractable baseKey now holds it, so wipe ours best-effort
+    // whether derivation succeeded or threw. The caller still wipes passkeySecret/passphraseMaterial.
+    zeroize(inputKeyMaterial);
+  }
 };
 
 const ensurePasskeySupport = (): void => {
@@ -147,7 +177,7 @@ export const bestEffortRemoveCredential = async (credentialIdentifier: Bytes): P
 export const registerPasskey = async (
   appName: string,
   username: string,
-  salt: Bytes,
+  prfEvalInput: Bytes,
 ): Promise<{ credentialIdentifier: Bytes; passkeySecret: BufferSource }> => {
   ensurePasskeySupport();
   await ensurePrfClientSupport();
@@ -165,10 +195,11 @@ export const registerPasskey = async (
       // their classical (non-quantum-resistant) nature does not weaken the stored secret's confidentiality.
       pubKeyCredParams: PUBKEY_CRED_PARAMS,
       authenticatorSelection: {
+        // no authenticatorAttachment → user may pick built-in biometric, a security key, or their phone
         residentKey: 'preferred',
         userVerification: 'required',
       },
-      extensions: { prf: { eval: { first: salt } } },
+      extensions: { prf: { eval: { first: prfEvalInput } } },
     },
   })) as PublicKeyCredential | null;
   if (!credential) {
@@ -187,7 +218,7 @@ export const registerPasskey = async (
     if (secretFromCreation === undefined && prf?.enabled === false) {
       throw new Error('This authenticator does not support the WebAuthn PRF extension required to protect secrets');
     }
-    const passkeySecret = secretFromCreation ?? (await evaluatePasskeySecret(credentialIdentifier, salt));
+    const passkeySecret = secretFromCreation ?? (await evaluatePasskeySecret(credentialIdentifier, prfEvalInput));
     return { credentialIdentifier, passkeySecret };
   } catch (error) {
     // We persisted a credential we cannot use (no PRF secret, or the user cancelled the fallback
@@ -199,8 +230,13 @@ export const registerPasskey = async (
 };
 
 // Runs a user-verification ceremony and returns the authenticator's PRF secret for this credential and
-// salt — the one input that requires the physical authenticator and a present human, and is never stored.
-export const evaluatePasskeySecret = async (credentialIdentifier: Bytes, salt: Bytes): Promise<BufferSource> => {
+// eval input — the one input that requires the physical authenticator and a present human, and is never
+// stored. The eval input is the per-entry salt, optionally length-framed with the passphrase material so
+// the secret is bound to the passphrase and cannot be reproduced for another guess without a fresh ceremony.
+export const evaluatePasskeySecret = async (
+  credentialIdentifier: Bytes,
+  prfEvalInput: Bytes,
+): Promise<BufferSource> => {
   ensurePasskeySupport();
   const assertion = (await navigator.credentials.get({
     signal: AbortSignal.timeout(120_000),
@@ -210,7 +246,7 @@ export const evaluatePasskeySecret = async (credentialIdentifier: Bytes, salt: B
 
       allowCredentials: [{ type: 'public-key', id: credentialIdentifier }],
       userVerification: 'required',
-      extensions: { prf: { eval: { first: salt } } },
+      extensions: { prf: { eval: { first: prfEvalInput } } },
     },
   })) as PublicKeyCredential | null;
   if (!assertion) {

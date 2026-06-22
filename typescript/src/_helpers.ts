@@ -36,3 +36,20 @@ export const asBytes = (source: BufferSource): Bytes => {
       : new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
   return new Uint8Array(view);
 };
+
+// Best-effort in-place wipe of a sensitive buffer once it is no longer needed (raw PRF unlock secret,
+// passphrase material, HKDF ikm). Writes through a view onto the SAME memory — unlike asBytes it does not
+// copy — so it must only be given a buffer that is truly done with, never one still in use, the returned
+// plaintext, or the persisted salt (prfEvalInput aliases the salt when there is no passphrase).
+//
+// This is defense in depth, not a guarantee. JS strings are immutable, so a passphrase or string secret
+// cannot be wiped at its source (it lingers until GC); a moving garbage collector may leave un-wiped copies
+// elsewhere; and WebCrypto copies its inputs internally where we cannot reach. It still shrinks the window
+// in which raw key material sits in heap memory.
+export const zeroize = (source: BufferSource): void => {
+  const view =
+    source instanceof ArrayBuffer
+      ? new Uint8Array(source)
+      : new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+  view.fill(0);
+};

@@ -32,7 +32,7 @@
   read demands a fresh on-device user-verification ceremony, and the encryption key is re-derived per call and never stored.
 - 🚫 **Build for Local-first. Zero backend.** No server, no account, no key material in transit — the secret, the key, and the salt never leave the device.
 - ⚛️ **Quantum-resistant symmetric core.** AES-256-GCM + HKDF-SHA-512 — CNSA 2.0 symmetric/hash primitives, NIST PQC Category 5.
-- 🔑 **Optional passphrase second factor.** Stretched with PBKDF2-SHA-512 (700k iterations) and folded into the key; required again on every unlock, and never stored.
+- 🔑 **Optional passphrase second factor.** Stretched with PBKDF2-SHA-512 (700k iterations) and bound into both the authenticator's PRF input and the key derivation — so each guess needs a live ceremony and a stolen vault can't be brute-forced offline; required again on every unlock, and never stored.
 - 🧩 **Per-app, per-entry isolation.** A length-framed application namespace plus a per-entry salt bind every key and ciphertext to one app, version, and entry, so secrets can never cross between them.
 - 🌐 **Origin-bound.** Entries are tied to the creating hostname (the WebAuthn rpId); a copied IndexedDB store cannot be unlocked from any other origin.
 - 📦 **Zero runtime dependencies** — pure ESM, side-effect-free, **tree-shakeable**, and safe to import in Node/SSR (nothing touches `window`/`location` until a ceremony runs).
@@ -51,10 +51,14 @@ There is no server to call, no account to create, and no key material in transit
 
 - A **secure context** — HTTPS, or `http://localhost` during development. WebAuthn and `crypto.subtle`
   are unavailable otherwise.
-- A browser + authenticator that supports WebAuthn with the **PRF extension** (`hmac-secret`),
-  **resident/discoverable keys**, and **user verification**. Most current platform authenticators
-  (Touch ID, Windows Hello, Android) on recent browsers qualify. If the authenticator does not return a
-  PRF secret, `createCredential`/`accessCredential` throw rather than store something unreadable.
+- An authenticator that supports WebAuthn with the **PRF extension** (`hmac-secret`) and **user
+  verification**. No attachment filter is set, so the user may use whatever they have — a built-in
+  authenticator (Touch ID, Windows Hello, Android biometrics), a roaming security key (USB/NFC, e.g. a
+  YubiKey), or their phone via the cross-device flow. (Discoverable/resident keys are *not* required — the
+  credential id is stored locally and replayed on unlock, so resident storage is only requested as a
+  preference.) PRF/`hmac-secret` is the real requirement; most current platform authenticators and modern
+  FIDO2 security keys on recent browsers qualify. If the authenticator does not return a PRF secret,
+  `createCredential`/`accessCredential` throw rather than store something unreadable.
 - ESM. The package is `"type": "module"` and has no runtime dependencies.
 
 ## Install
@@ -106,8 +110,10 @@ const { entry, secret } = await createCredential({
 // (see "No recovery" below) — after this call the only way back to it is a user-verified unlock.
 ```
 
-Require a **passphrase** as a second factor — it is stretched with PBKDF2-SHA-512 and folded into the key,
-so the entry can then be opened only with the authenticator **and** the passphrase:
+Require a **passphrase** as a second factor — it is stretched with PBKDF2-SHA-512 and bound into both the
+authenticator's PRF input and the key derivation, so the entry can then be opened only with the
+authenticator **and** the passphrase, and because a wrong passphrase changes the PRF input, a stolen vault
+cannot be brute-forced offline:
 
 ```ts
 const { entry } = await createCredential({
@@ -159,9 +165,11 @@ automatically on access, so secrets from one app/version can never be unlocked a
 `applicationName` it defaults to a stable, environment-derived identity — a web-app-manifest id if one is
 present, otherwise the page hostname, otherwise `"app"` — chosen to stay constant across app updates.
 
-A `passphrase`, if given, is stretched with PBKDF2-SHA-512 and folded into the key, so the entry then
-requires **both** the authenticator and that passphrase to open. Only a `passphrased: true` flag is
-recorded — never the passphrase itself; an empty string is treated as no passphrase.
+A `passphrase`, if given, is stretched with PBKDF2-SHA-512 and bound into both the authenticator's PRF
+input and the key derivation, so the entry then requires **both** the authenticator and that passphrase to
+open; testing a guess needs a live ceremony, so a stolen vault cannot be brute-forced offline. Only a
+`passphrased: true` flag is recorded — never the passphrase itself; an empty string is treated as no
+passphrase.
 
 > Origin binding is automatic: entries are bound to the page's hostname (`location.hostname`, the WebAuthn
 > rpId) and cannot be unlocked from a different hostname. There is no server endpoint — a credential is
@@ -233,12 +241,14 @@ entry can never leak key material.
 Every secret is sealed under a single AES-256-GCM key that is re-derived on demand and **never stored**:
 
 1. **Unlock secret** — 32 bytes produced by the authenticator's WebAuthn PRF extension, but only during
-   a user-verified ceremony. It is the one input that requires the physical authenticator and a present
-   human, and it is never persisted.
-2. **Encryption key** — `HKDF-SHA-512` over the unlock secret (with the optional passphrase stretched by
-   PBKDF2-SHA-512 and mixed in, when one is set), salted with a per-entry random salt and bound (via the
-   HKDF `info`) to the application namespace and the credential id, so keys never cross between entries or
-   apps. Non-extractable; exists only for the duration of one call.
+   a user-verified ceremony. The PRF is evaluated over a SHA-512 hash of the per-entry salt — and, when a
+   passphrase is set, of the salt length-framed with the PBKDF2-SHA-512-stretched passphrase — so a wrong
+   passphrase yields a different secret and each guess needs a fresh ceremony (no offline brute-force). It
+   is the one input that requires the physical authenticator and a present human, and it is never persisted.
+2. **Encryption key** — `HKDF-SHA-512` over the unlock secret (and, when a passphrase is set, the same
+   PBKDF2-stretched passphrase material length-framed in alongside it), salted with a per-entry random salt
+   and bound (via the HKDF `info`) to the application namespace and the credential id, so keys never cross
+   between entries or apps. Non-extractable; exists only for the duration of one call.
 3. **Ciphertext** — the key encrypts the secret with AES-256-GCM under a fresh 12-byte nonce, with the
    application namespace and entry identifier as additional authenticated data (so a stored blob cannot
    be moved to another entry or namespace without failing the GCM tag).
