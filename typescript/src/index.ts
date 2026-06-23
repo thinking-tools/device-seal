@@ -6,6 +6,7 @@ export {
   wipeVault,
   createVault,
 } from './_vault.js';
+export { isDeviceSupported } from './_crypto.js';
 export type {
   CredentialMetadata,
   CreateCredentialOptions,

@@ -142,6 +142,34 @@ const ensurePrfClientSupport = async (): Promise<void> => {
   }
 };
 
+/**
+ * Reports whether this client can protect secrets with the WebAuthn PRF extension, without running a
+ * ceremony, prompting the user, or persisting anything. Intended for UIs that want to hide or disable the
+ * feature before calling {@link createCredential}.
+ *
+ * Returns `false` when WebAuthn is unavailable — no `PublicKeyCredential` (it is `[SecureContext]`-gated, so
+ * absent over plain HTTP and in non-browser runtimes) or no `navigator.credentials` — or when the client
+ * explicitly reports the PRF extension unsupported. Returns `true` when the client supports PRF, or when
+ * support is unknown (older clients predate `getClientCapabilities()`), mirroring the registration
+ * pre-flight's "block only on an explicit no" policy so PRF-capable authenticators are never pre-emptively
+ * locked out.
+ *
+ * IMPORTANT: capabilities are client-level, not per-authenticator. A `true` result means the *browser* can
+ * do PRF; it cannot guarantee the authenticator the user ultimately selects supports it — a password
+ * manager that stores passkeys without `hmac-secret` (e.g. Bitwarden on Android) passes this check yet
+ * still fails the ceremony. Only {@link createCredential} knows for certain, and it throws if the chosen
+ * authenticator lacks PRF. Use this to gate the UI; always still handle a `createCredential` rejection.
+ *
+ * @returns `true` if the client plausibly supports PRF-protected secrets, `false` if it definitely does not.
+ */
+export const isDeviceSupported = async (): Promise<boolean> => {
+  if (!globalThis.PublicKeyCredential || !globalThis.navigator?.credentials) {
+    return false;
+  }
+  const capabilities = await globalThis.PublicKeyCredential.getClientCapabilities?.();
+  return capabilities?.['extension:prf'] !== false;
+};
+
 // base64url-encodes a credential id for the WebAuthn signal API, which takes a Base64URLString, not bytes.
 const toBase64Url = (bytes: Bytes): string => {
   let binary = '';
@@ -212,10 +240,15 @@ export const registerPasskey = async (
     const prf = credential.getClientExtensionResults().prf;
     const secretFromCreation = prf?.results?.first;
     // create() ignores an unsupported extension rather than failing, so the credential is already
-    // persisted here. If the authenticator explicitly reports PRF disabled, a follow-up assertion cannot
-    // yield a secret either, so fail now instead of firing a second, doomed user-verification prompt. The
-    // client-level pre-flight cannot prevent reaching here — only the authenticator knows it lacks PRF.
-    if (secretFromCreation === undefined && prf?.enabled === false) {
+    // persisted here. With no secret from creation, a follow-up assertion is worth attempting only when the
+    // authenticator affirmatively reports PRF support (`enabled === true`) — the load-bearing
+    // dual-evaluation path for authenticators that defer the secret to get(). Every other shape means a
+    // doomed get(): `enabled === false` is an explicit "no", and a missing `enabled` (`undefined`, or no
+    // prf output at all) is a credential manager that ignored the prf extension — e.g. a passkey provider
+    // without hmac-secret support, like Bitwarden on Android — so support was never confirmed and the
+    // assertion cannot produce a secret. Fail now instead of firing a second, doomed user-verification
+    // prompt. The client-level pre-flight cannot prevent reaching here — only the authenticator knows.
+    if (secretFromCreation === undefined && prf?.enabled !== true) {
       throw new Error('This authenticator does not support the WebAuthn PRF extension required to protect secrets');
     }
     const passkeySecret = secretFromCreation ?? (await evaluatePasskeySecret(credentialIdentifier, prfEvalInput));

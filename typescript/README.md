@@ -58,7 +58,9 @@ There is no server to call, no account to create, and no key material in transit
   credential id is stored locally and replayed on unlock, so resident storage is only requested as a
   preference.) PRF/`hmac-secret` is the real requirement; most current platform authenticators and modern
   FIDO2 security keys on recent browsers qualify. If the authenticator does not return a PRF secret,
-  `createCredential`/`accessCredential` throw rather than store something unreadable.
+  `createCredential`/`accessCredential` throw rather than store something unreadable. You can probe the
+  browser's PRF capability up front with [`isDeviceSupported()`](#isdevicesupported) — but it reports only
+  what the *client* supports, not which authenticator the user will pick, so the ceremony is the final word.
 - ESM. The package is `"type": "module"` and has no runtime dependencies.
 
 ## Install
@@ -131,10 +133,29 @@ const { secret } = await accessCredential({
 
 ## API
 
-Four named exports: the three core `async` functions below, plus `createVault` — a small factory that
-pre-binds shared config. Each function accepts an optional `databaseName` (default `passkeyVault`) to
-namespace its own IndexedDB store, and an advanced `databaseVersion` — omit it unless you are deliberately
-driving an IndexedDB upgrade (versions are monotonic, so a fixed value throws after any bump).
+The core `async` functions below, plus `createVault` — a small factory that pre-binds shared config — and
+`isDeviceSupported()`, a capability probe you can call before any of them. Each core function accepts an
+optional `databaseName` (default `passkeyVault`) to namespace its own IndexedDB store, and an advanced
+`databaseVersion` — omit it unless you are deliberately driving an IndexedDB upgrade (versions are
+monotonic, so a fixed value throws after any bump).
+
+### `isDeviceSupported()`
+
+A capability probe for gating your UI: resolves `true` when this client can protect secrets with the
+WebAuthn PRF extension, `false` when it definitely cannot — no `PublicKeyCredential` (it is secure-context
+only, so absent over plain HTTP and in non-browser runtimes) / no `navigator.credentials`, or the browser
+explicitly reports PRF unsupported. It runs no ceremony, shows no prompt, and stores nothing.
+
+```ts
+isDeviceSupported(): Promise<boolean>
+```
+
+Capabilities are **client-level, not per-authenticator**: a `true` result means the *browser* supports PRF,
+not that the specific passkey provider the user picks does. A password manager that stores passkeys without
+`hmac-secret` (e.g. Bitwarden on Android) passes this check yet still fails the ceremony — so always handle
+a `createCredential` rejection too. Treat it as "hide the feature when it's hopeless," not "guarantee
+success." Unknown capabilities (older clients without `getClientCapabilities()`) resolve `true`, so
+PRF-capable authenticators are never pre-emptively locked out.
 
 ### `createCredential(options)`
 
@@ -205,12 +226,39 @@ accessCredential(options: {
 Throws if no entry matches the identifier, if the entry needs a passphrase and none (or an empty one) was
 supplied, or if the user cancels verification. The passphrase check runs before any authenticator prompt.
 
+### `removeCredential(options)`
+
+Permanently deletes one stored credential and best-effort asks the platform credential manager to drop the
+now-orphaned passkey. No user verification: deletion exposes no plaintext, and any same-origin caller could
+clear IndexedDB anyway, so a ceremony would only add a footgun (a lost authenticator could never clean up
+its own entry). Irreversible — the encrypted secret cannot be recovered afterwards.
+
+```ts
+removeCredential(options: {
+  identifier: string;              // required — the entry to delete
+  databaseName?: string;           // default 'passkeyVault'
+  databaseVersion?: number;        // advanced
+}): Promise<boolean>               // true if an entry was deleted, false if none matched (idempotent no-op)
+```
+
+### `wipeVault(options?)`
+
+Deletes **every** stored credential in a database and best-effort asks the credential manager to drop each
+now-orphaned passkey. Like `removeCredential`, it needs no user verification and is irreversible.
+
+```ts
+wipeVault(options?: {
+  databaseName?: string;           // default 'passkeyVault'
+  databaseVersion?: number;        // advanced
+}): Promise<number>                // count of entries removed
+```
+
 ### `createVault(config?)`
 
 A small synchronous factory that pre-binds shared config — `databaseName`, `databaseVersion`,
 `applicationName`, `applicationVersion` — so you don't repeat it on every call. It returns
-`{ create, access, list }`, thin wrappers over the three functions above; per-call options are merged over
-the bound config (call options win).
+`{ create, access, list, remove, wipe }`, thin wrappers over the five functions above; per-call options are
+merged over the bound config (call options win).
 
 ```ts
 const vault = createVault({ applicationName: 'my-app', databaseName: 'myVault' });
@@ -218,6 +266,8 @@ const vault = createVault({ applicationName: 'my-app', databaseName: 'myVault' }
 const { entry } = await vault.create({ username: 'alice@example.com', secret: 'my-api-token' });
 const all = await vault.list({ username: 'alice@example.com' });
 const { secret } = await vault.access({ identifier: entry.identifier });
+await vault.remove({ identifier: entry.identifier }); // delete one entry
+await vault.wipe(); // or delete every entry in the bound database
 ```
 
 ### Types

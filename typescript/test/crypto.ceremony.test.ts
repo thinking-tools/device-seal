@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { registerPasskey, evaluatePasskeySecret } from '../src/_crypto.js';
+import { registerPasskey, evaluatePasskeySecret, isDeviceSupported } from '../src/_crypto.js';
 import { installAuthenticator, prfSecret, toB64Url } from './_fakes.js';
 import type { Bytes } from '../src/_types.js';
 
@@ -59,6 +59,21 @@ describe('registerPasskey — PRF acquisition paths', () => {
     expect(h.signalSpy).toHaveBeenCalledWith({ rpId: 'localhost', credentialId: toB64Url(h.createdIds[0]!) });
   });
 
+  it('Layer 2: PRF enabled undefined (provider ignored the extension) -> throws, cleans up once, no second prompt', async () => {
+    const h = installAuthenticator({ createResult: 'enabledUndefined' });
+    await expect(registerPasskey('app/v1/', 'alice', SALT)).rejects.toThrow(/authenticator does not support/);
+    expect(h.getSpy).not.toHaveBeenCalled(); // the Bitwarden-on-Android case: no doomed second ceremony
+    expect(h.signalSpy).toHaveBeenCalledTimes(1);
+    expect(h.signalSpy).toHaveBeenCalledWith({ rpId: 'localhost', credentialId: toB64Url(h.createdIds[0]!) });
+  });
+
+  it('Layer 2: no prf output at all -> throws, cleans up once, no second prompt', async () => {
+    const h = installAuthenticator({ createResult: 'absent' });
+    await expect(registerPasskey('app/v1/', 'alice', SALT)).rejects.toThrow(/authenticator does not support/);
+    expect(h.getSpy).not.toHaveBeenCalled();
+    expect(h.signalSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('fallback: enabled-without-result then get() supplies the secret, no cleanup', async () => {
     const h = installAuthenticator({ createResult: 'enabledNoResult', getResult: 'prf' });
     const { passkeySecret } = await registerPasskey('app/v1/', 'alice', SALT);
@@ -82,6 +97,45 @@ describe('registerPasskey — PRF acquisition paths', () => {
     });
     await expect(registerPasskey('app/v1/', 'alice', SALT)).rejects.toThrow(/did not return a pseudo-random/);
     expect(h.signalSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('isDeviceSupported', () => {
+  it('true when the client reports the PRF extension supported', async () => {
+    installAuthenticator({ clientCapabilities: { 'extension:prf': true } });
+    await expect(isDeviceSupported()).resolves.toBe(true);
+  });
+
+  it('true when capability is unknown — getClientCapabilities absent (older client)', async () => {
+    installAuthenticator({ clientCapabilities: null });
+    await expect(isDeviceSupported()).resolves.toBe(true);
+  });
+
+  it('true when the extension:prf key is absent from capabilities', async () => {
+    installAuthenticator({ clientCapabilities: {} });
+    await expect(isDeviceSupported()).resolves.toBe(true);
+  });
+
+  it('false when the client explicitly reports PRF unsupported', async () => {
+    installAuthenticator({ clientCapabilities: { 'extension:prf': false } });
+    await expect(isDeviceSupported()).resolves.toBe(false);
+  });
+
+  it('false when WebAuthn is unavailable (no PublicKeyCredential)', async () => {
+    installAuthenticator({ omitPublicKeyCredential: true });
+    await expect(isDeviceSupported()).resolves.toBe(false);
+  });
+
+  it('false when navigator.credentials is missing', async () => {
+    installAuthenticator({ omitCredentialsContainer: true });
+    await expect(isDeviceSupported()).resolves.toBe(false);
+  });
+
+  it('is a pure probe: runs no create()/get() ceremony', async () => {
+    const h = installAuthenticator({ clientCapabilities: { 'extension:prf': true } });
+    await isDeviceSupported();
+    expect(h.createSpy).not.toHaveBeenCalled();
+    expect(h.getSpy).not.toHaveBeenCalled();
   });
 });
 

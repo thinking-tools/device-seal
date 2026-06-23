@@ -19,8 +19,10 @@ export const toB64Url = (bytes: Uint8Array): string => {
 export interface FakeOptions {
   /** getClientCapabilities() return value; `null` removes the method entirely; default `{'extension:prf':true}`. */
   clientCapabilities?: Record<string, boolean> | null;
-  /** What create() reports: a direct PRF result, enabled-without-result (forces a get()), PRF disabled, or cancel. */
-  createResult?: 'prf' | 'enabledNoResult' | 'disabled' | null;
+  /** What create() reports: a direct PRF result, enabled-without-result (forces a get()), `enabled`
+   *  undefined (`{prf:{}}`), no prf output at all (`absent` — provider ignored the extension), PRF
+   *  disabled, or cancel. */
+  createResult?: 'prf' | 'enabledNoResult' | 'enabledUndefined' | 'disabled' | 'absent' | null;
   /** What a follow-up get() reports: a PRF result, an assertion lacking PRF, or cancel. */
   getResult?: 'prf' | 'noPrf' | null;
   hasSignalUnknownCredential?: boolean;
@@ -54,13 +56,17 @@ export const installAuthenticator = (opts: FakeOptions = {}): FakeHandles => {
     const evalFirst = options?.publicKey?.extensions?.prf?.eval?.first as BufferSource;
     const rawId = crypto.getRandomValues(new Uint8Array(16)).buffer;
     createdIds.push(new Uint8Array(rawId));
-    const prf =
+    const extensionResults: any =
       createResult === 'prf'
-        ? { results: { first: await prfSecret(evalFirst) } }
+        ? { prf: { results: { first: await prfSecret(evalFirst) } } }
         : createResult === 'enabledNoResult'
-          ? { enabled: true }
-          : { enabled: false };
-    return { rawId, getClientExtensionResults: () => ({ prf }) };
+          ? { prf: { enabled: true } }
+          : createResult === 'enabledUndefined'
+            ? { prf: {} } // prf present but no `enabled`/`results` — provider silently ignored the extension
+            : createResult === 'absent'
+              ? {} // no prf output at all
+              : { prf: { enabled: false } };
+    return { rawId, getClientExtensionResults: () => extensionResults };
   });
 
   const getSpy = vi.fn(async (options: any): Promise<any> => {
