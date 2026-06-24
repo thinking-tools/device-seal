@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Library manifest. The package/namespace comes from build.gradle.kts (android.namespace). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- StrongBox is preferred but not required: the library falls back to the TEE when no discrete secure
+         element is present, so this feature is declared optional. Do not set required="true" unless the app
+         truly cannot run without a StrongBox. -->
+    <uses-feature
+        android:name="android.hardware.strongbox_keystore"
+        android:required="false" />
+
+</manifest>
